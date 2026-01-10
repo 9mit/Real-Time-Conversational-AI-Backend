@@ -1,5 +1,7 @@
 # RTAI - Real-Time Conversational AI Backend
 
+<img width="1071" height="990" alt="image" src="https://github.com/user-attachments/assets/67023cb2-ae85-48db-8bea-453dbb93dd68" />
+
 A high-performance, asynchronous Python backend implementing real-time bi-directional WebSocket communication with LLM streaming, function calling, async database persistence, and automated post-session processing.
 
 ## Quick Start
