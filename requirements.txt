@@ -1,0 +1,21 @@
+# RTAI Backend Dependencies
+
+# Web Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# Google Gemini API
+google-generativeai>=0.8.0
+
+# Supabase Client
+supabase>=2.0.0
+
+# Data Validation & Settings
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Environment Management
+python-dotenv>=1.0.0
+
+# Testing
+websockets>=12.0
