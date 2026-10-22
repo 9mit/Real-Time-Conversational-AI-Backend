@@ -61,6 +61,7 @@
             height: 10px;
             border-radius: 50%;
             background: #cccccc;
+            transition: background 0.3s;
         }
 
         .status-dot.connected {
@@ -107,6 +108,8 @@
             border: 1px solid #000000;
             max-width: 85%;
             color: #000000;
+            word-wrap: break-word;
+            white-space: pre-wrap;
         }
 
         .message.user {
@@ -172,6 +175,12 @@
             color: #000000;
         }
 
+        .btn-send:disabled,
+        #messageInput:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
         .examples {
             margin-top: 20px;
             padding: 20px;
@@ -205,6 +214,44 @@
             display: inline-block;
             color: #666666;
             font-style: italic;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 12px;
+            }
+
+            .container {
+                max-width: 100%;
+            }
+
+            .status-bar {
+                padding: 12px 14px;
+            }
+
+            .chat-container {
+                height: 380px;
+                padding: 14px;
+            }
+
+            .message {
+                max-width: 90%;
+                padding: 10px 12px;
+            }
+
+            .btn-send {
+                padding: 12px 18px;
+            }
+
+            #messageInput {
+                padding: 12px 14px;
+                font-size: 15px;
+            }
+
+            .example-btn {
+                padding: 6px 12px;
+                margin: 3px;
+            }
         }
     </style>
 </head>
@@ -245,48 +292,80 @@
         let sessionId = 'session-' + Math.random().toString(36).substring(2, 10);
         let currentAiMessage = null;
         let isProcessing = false;
+        let pingInterval = null;
 
         function toggleConnection() {
-            if (ws && ws.readyState === WebSocket.OPEN) {
+            if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
                 ws.close();
             } else {
                 connect();
             }
         }
 
+        function getWebSocketUrl() {
+            const loc = window.location;
+            const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+            const defaultHost = 'localhost:5000';
+            const host = loc.host && loc.protocol.startsWith('http') ? loc.host : defaultHost;
+            return `${protocol}//${host}/ws/session/${sessionId}`;
+        }
+
         function connect() {
-            const wsUrl = `ws://localhost:5000/ws/session/${sessionId}`;
+            const wsUrl = getWebSocketUrl();
             addMessage('system', 'Connecting...');
 
-            ws = new WebSocket(wsUrl);
+            try {
+                ws = new WebSocket(wsUrl);
+            } catch (err) {
+                addMessage('system', 'Unable to initiate connection.');
+                return;
+            }
 
             ws.onopen = () => {
                 document.getElementById('statusDot').classList.add('connected');
                 document.getElementById('statusText').textContent = 'Connected';
-                document.getElementById('connectBtn').textContent = 'Disconnect';
-                document.getElementById('connectBtn').classList.add('btn-disconnect');
+                const connectBtn = document.getElementById('connectBtn');
+                connectBtn.textContent = 'Disconnect';
+                connectBtn.classList.add('btn-disconnect');
                 document.getElementById('messageInput').disabled = false;
                 document.getElementById('sendBtn').disabled = false;
 
-                // Remove connecting message
+                // Remove temporary connecting message
                 const messages = document.querySelectorAll('.message.system');
                 messages.forEach(msg => {
-                    if (msg.textContent.includes('Connecting')) {
+                    if (msg.textContent === 'Connecting...') {
                         msg.remove();
                     }
                 });
+
+                // Periodic ping keepalive every 25 seconds
+                if (pingInterval) clearInterval(pingInterval);
+                pingInterval = setInterval(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'ping' }));
+                    }
+                }, 25000);
             };
 
             ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                handleMessage(data);
+                try {
+                    const data = JSON.parse(event.data);
+                    handleMessage(data);
+                } catch (e) {
+                    console.error('Invalid JSON received:', event.data);
+                }
             };
 
             ws.onclose = () => {
+                if (pingInterval) {
+                    clearInterval(pingInterval);
+                    pingInterval = null;
+                }
                 document.getElementById('statusDot').classList.remove('connected');
                 document.getElementById('statusText').textContent = 'Disconnected';
-                document.getElementById('connectBtn').textContent = 'Connect';
-                document.getElementById('connectBtn').classList.remove('btn-disconnect');
+                const connectBtn = document.getElementById('connectBtn');
+                connectBtn.textContent = 'Connect';
+                connectBtn.classList.remove('btn-disconnect');
                 document.getElementById('messageInput').disabled = true;
                 document.getElementById('sendBtn').disabled = true;
                 addMessage('system', 'Disconnected');
@@ -304,7 +383,11 @@
         function handleMessage(data) {
             switch (data.type) {
                 case 'system':
-                    addMessage('system', 'Ready');
+                    addMessage('system', data.content || 'Ready');
+                    break;
+
+                case 'pong':
+                    // Keepalive pong received
                     break;
 
                 case 'ai_chunk':
@@ -328,17 +411,16 @@
                     break;
 
                 case 'tool_result':
-                    // Remove "Fetching" message
                     const systemMsgs = document.querySelectorAll('.message.system');
                     systemMsgs.forEach(msg => {
-                        if (msg.textContent.includes('Fetching')) {
+                        if (msg.textContent.includes('Fetching information')) {
                             msg.remove();
                         }
                     });
                     break;
 
                 case 'error':
-                    addMessage('system', 'Error occurred');
+                    addMessage('system', data.content ? ('Error: ' + data.content) : 'Error occurred');
                     currentAiMessage = null;
                     isProcessing = false;
                     break;
@@ -354,12 +436,21 @@
 
             if (type === 'user' || type === 'ai') {
                 const label = type === 'user' ? 'You' : 'ARIA';
-                msgDiv.innerHTML = `
-                    <div class="message-label">${label}</div>
-                    <div class="message-content">${content}</div>
-                `;
+                const labelDiv = document.createElement('div');
+                labelDiv.className = 'message-label';
+                labelDiv.textContent = label;
+
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                contentDiv.textContent = content;
+
+                msgDiv.appendChild(labelDiv);
+                msgDiv.appendChild(contentDiv);
             } else {
-                msgDiv.innerHTML = `<div class="message-content">${content}</div>`;
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                contentDiv.textContent = content;
+                msgDiv.appendChild(contentDiv);
             }
 
             container.appendChild(msgDiv);
@@ -368,8 +459,11 @@
         }
 
         function appendToMessage(msgDiv, content) {
+            if (!msgDiv) return;
             const contentDiv = msgDiv.querySelector('.message-content');
-            contentDiv.textContent += content;
+            if (contentDiv) {
+                contentDiv.textContent += content;
+            }
         }
 
         function scrollToBottom() {
@@ -400,8 +494,12 @@
         }
 
         function setExample(text) {
-            document.getElementById('messageInput').value = text;
-            document.getElementById('messageInput').focus();
+            const input = document.getElementById('messageInput');
+            input.value = text;
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                connect();
+            }
+            input.focus();
         }
     </script>
 </body>

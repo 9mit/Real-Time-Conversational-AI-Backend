@@ -6,6 +6,7 @@
 .env
 .env.local
 .env.*.local
+.tests
 *.pem
 *.key
 
@@ -79,3 +80,5 @@ desktop.ini
 # Project Specific
 *.sqlite3
 *.db
+
+
